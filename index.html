@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QRまとめ生成（タイトル＆個別メモ対応）</title>
+<title>QRまとめ生成（完全修正版）</title>
 
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
@@ -53,11 +53,16 @@ input, button {
 
 <body>
 
-<h2>QRまとめ生成（タイトル・個別メモ対応）</h2>
+<h2>QRまとめ生成（完全修正版）</h2>
 
 <div id="reader"></div>
 
-<input id="title" type="text" placeholder="タイトル（画像の一番上に表示）" style="width:90%;max-width:320px;">
+<input
+  id="title"
+  type="text"
+  placeholder="タイトル（画像の一番上に表示）"
+  style="width:90%;max-width:320px;"
+>
 <br>
 
 <button id="start-scan">QR読み取り開始</button>
@@ -79,12 +84,13 @@ const titleHeight = 40;
 let scanner = null;
 const qrItems = []; // { text, canvas, memo }
 
-new Sortable(qr-list, {
+// --- 並び替え（★ 修正済み） ---
+new Sortable(document.getElementById("qr-list"), {
   animation: 150,
   onEnd: () => {
     const reordered = [];
     document.querySelectorAll("#qr-list li").forEach(li => {
-      reordered.push(qrItems[li.dataset.index]);
+      reordered.push(qrItems[Number(li.dataset.index)]);
     });
     qrItems.length = 0;
     qrItems.push(...reordered);
@@ -93,36 +99,43 @@ new Sortable(qr-list, {
   }
 });
 
-document.getElementById("start-scan").onclick = () => {
+// --- スキャン開始 ---
+document.getElementById("start-scan").addEventListener("click", () => {
   if (scanner) return;
+
   scanner = new Html5Qrcode("reader");
   scanner.start(
     { facingMode: "environment" },
     { fps: 10, qrbox: 250 },
-    text => {
+    decodedText => {
       if (qrItems.length >= maxQR) {
         scanner.stop();
         scanner = null;
         return;
       }
-      if (qrItems.some(q => q.text === text)) return;
-      addQR(text);
-    }
+      if (qrItems.some(item => item.text === decodedText)) return;
+      addQR(decodedText);
+    },
+    () => {}
   );
-};
+});
 
+// --- QR追加 ---
 function addQR(text) {
   const canvas = document.createElement("canvas");
   canvas.width = QR_SIZE;
   canvas.height = QR_SIZE;
 
-  QRCode.toCanvas(canvas, text, { width: QR_SIZE, margin: 0 }, () => {
+  QRCode.toCanvas(canvas, text, { width: QR_SIZE, margin: 0 }, err => {
+    if (err) return console.error(err);
+
     qrItems.push({ text, canvas, memo: "" });
     refreshList();
     updateOutput();
   });
 }
 
+// --- リスト再描画 ---
 function refreshList() {
   const list = document.getElementById("qr-list");
   list.innerHTML = "";
@@ -139,10 +152,10 @@ function refreshList() {
     memoInput.className = "qr-memo";
     memoInput.placeholder = "このQRのメモ";
     memoInput.value = item.memo;
-    memoInput.oninput = e => {
+    memoInput.addEventListener("input", e => {
       item.memo = e.target.value;
       updateOutput();
-    };
+    });
 
     li.appendChild(textDiv);
     li.appendChild(memoInput);
@@ -150,6 +163,7 @@ function refreshList() {
   });
 }
 
+// --- 出力canvas更新 ---
 function updateOutput() {
   const out = document.getElementById("output");
   const ctx = out.getContext("2d");
@@ -173,30 +187,42 @@ function updateOutput() {
     const baseY =
       titleHeight + i * (QR_SIZE + memoHeight + gap);
 
+    // メモ
     if (item.memo) {
       ctx.font = "16px sans-serif";
       ctx.fillText(item.memo, out.width / 2, baseY + 18);
     }
 
+    // QR
     const x = (out.width - QR_SIZE) / 2;
-    ctx.drawImage(item.canvas, x, baseY + memoHeight, QR_SIZE, QR_SIZE);
+    ctx.drawImage(
+      item.canvas,
+      x,
+      baseY + memoHeight,
+      QR_SIZE,
+      QR_SIZE
+    );
   });
 }
 
-document.getElementById("title").oninput = updateOutput;
+// --- タイトル変更即反映 ---
+document.getElementById("title").addEventListener("input", updateOutput);
 
-document.getElementById("reset").onclick = () => {
+// --- リセット ---
+document.getElementById("reset").addEventListener("click", () => {
   qrItems.length = 0;
   document.getElementById("qr-list").innerHTML = "";
   updateOutput();
-};
+});
 
-document.getElementById("download").onclick = () => {
+// --- ダウンロード ---
+document.getElementById("download").addEventListener("click", () => {
+  const out = document.getElementById("output");
   const link = document.createElement("a");
-  link.href = output.toDataURL("image/png");
+  link.href = out.toDataURL("image/png");
   link.download = "qrまとめ.png";
   link.click();
-};
+});
 </script>
 
 </body>
