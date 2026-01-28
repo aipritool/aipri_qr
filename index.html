@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QRまとめ生成（最終安定版）</title>
+<title>QRまとめ生成（完全版）</title>
 
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
@@ -28,10 +28,9 @@ body {
   border: 1px solid #ccc;
   margin: 6px 0;
   padding: 6px;
-  font-size: 12px;
   display: flex;
-  align-items: flex-start;
   gap: 6px;
+  font-size: 12px;
 }
 .drag-handle {
   cursor: grab;
@@ -182,8 +181,10 @@ function refreshList() {
   });
 }
 
-/* ========= テキスト自動改行描画 ========= */
-function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight) {
+/* ========= 自動改行＋中央揃え描画 ========= */
+function drawWrappedText(ctx, text, centerX, startY, maxWidth, lineHeight) {
+  ctx.textAlign = "left";
+
   const chars = text.split("");
   let line = "";
   const lines = [];
@@ -200,7 +201,8 @@ function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight) {
   if (line) lines.push(line);
 
   lines.forEach((l, i) => {
-    ctx.fillText(l, x, y + i * lineHeight);
+    const w = ctx.measureText(l).width;
+    ctx.fillText(l, centerX - w / 2, startY + i * lineHeight);
   });
 
   return lines.length;
@@ -213,13 +215,11 @@ function updateOutput() {
   const title = document.getElementById("title").value;
 
   ctx.clearRect(0, 0, out.width, out.height);
-  ctx.textAlign = "center";
   ctx.fillStyle = "#000";
 
   let y = 10;
 
-  // タイトル（自動改行）
-  let titleHeight = 0;
+  // タイトル
   if (title) {
     ctx.font = "bold 22px sans-serif";
     const lines = drawWrappedText(
@@ -230,18 +230,15 @@ function updateOutput() {
       out.width - 20,
       26
     );
-    titleHeight = lines * 26 + 10;
-    y += titleHeight;
+    y += lines * 26 + 10;
   }
 
-  // QR群
   out.height =
     y +
     qrItems.length * (QR_SIZE + memoHeight + gap);
 
   ctx.clearRect(0, 0, out.width, out.height);
 
-  // 再描画（高さ確定後）
   y = 10;
   if (title) {
     ctx.font = "bold 22px sans-serif";
@@ -259,7 +256,14 @@ function updateOutput() {
   qrItems.forEach(item => {
     if (item.memo) {
       ctx.font = "16px sans-serif";
-      ctx.fillText(item.memo, out.width / 2, y + 18);
+      drawWrappedText(
+        ctx,
+        item.memo,
+        out.width / 2,
+        y + 18,
+        out.width - 20,
+        22
+      );
     }
     const x = (out.width - QR_SIZE) / 2;
     ctx.drawImage(item.canvas, x, y + memoHeight, QR_SIZE, QR_SIZE);
@@ -267,7 +271,7 @@ function updateOutput() {
   });
 }
 
-/* ========= 各種イベント ========= */
+/* ========= イベント ========= */
 document.getElementById("title").addEventListener("input", updateOutput);
 
 document.getElementById("reset").addEventListener("click", () => {
