@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QRまとめ生成（完全修正版）</title>
+<title>QRまとめ生成（最終安定版）</title>
 
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
@@ -29,7 +29,18 @@ body {
   margin: 6px 0;
   padding: 6px;
   font-size: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.drag-handle {
   cursor: grab;
+  user-select: none;
+  font-size: 18px;
+  padding: 4px;
+}
+.qr-content {
+  flex: 1;
 }
 .qr-text {
   word-break: break-all;
@@ -53,14 +64,14 @@ input, button {
 
 <body>
 
-<h2>QRまとめ生成（完全修正版）</h2>
+<h2>QRまとめ生成</h2>
 
 <div id="reader"></div>
 
 <input
   id="title"
   type="text"
-  placeholder="タイトル（画像の一番上に表示）"
+  placeholder="タイトル（長い場合は自動改行）"
   style="width:90%;max-width:320px;"
 >
 <br>
@@ -79,14 +90,14 @@ const maxQR = 4;
 const QR_SIZE = 300;
 const gap = 20;
 const memoHeight = 26;
-const titleHeight = 40;
 
 let scanner = null;
 const qrItems = []; // { text, canvas, memo }
 
-// --- 並び替え（★ 修正済み） ---
+/* ========= 並び替え（ハンドル限定） ========= */
 new Sortable(document.getElementById("qr-list"), {
   animation: 150,
+  handle: ".drag-handle",
   onEnd: () => {
     const reordered = [];
     document.querySelectorAll("#qr-list li").forEach(li => {
@@ -99,7 +110,7 @@ new Sortable(document.getElementById("qr-list"), {
   }
 });
 
-// --- スキャン開始 ---
+/* ========= スキャン開始 ========= */
 document.getElementById("start-scan").addEventListener("click", () => {
   if (scanner) return;
 
@@ -107,20 +118,19 @@ document.getElementById("start-scan").addEventListener("click", () => {
   scanner.start(
     { facingMode: "environment" },
     { fps: 10, qrbox: 250 },
-    decodedText => {
+    text => {
       if (qrItems.length >= maxQR) {
         scanner.stop();
         scanner = null;
         return;
       }
-      if (qrItems.some(item => item.text === decodedText)) return;
-      addQR(decodedText);
-    },
-    () => {}
+      if (qrItems.some(item => item.text === text)) return;
+      addQR(text);
+    }
   );
 });
 
-// --- QR追加 ---
+/* ========= QR追加 ========= */
 function addQR(text) {
   const canvas = document.createElement("canvas");
   canvas.width = QR_SIZE;
@@ -128,14 +138,13 @@ function addQR(text) {
 
   QRCode.toCanvas(canvas, text, { width: QR_SIZE, margin: 0 }, err => {
     if (err) return console.error(err);
-
     qrItems.push({ text, canvas, memo: "" });
     refreshList();
     updateOutput();
   });
 }
 
-// --- リスト再描画 ---
+/* ========= リスト再描画 ========= */
 function refreshList() {
   const list = document.getElementById("qr-list");
   list.innerHTML = "";
@@ -143,6 +152,13 @@ function refreshList() {
   qrItems.forEach((item, i) => {
     const li = document.createElement("li");
     li.dataset.index = i;
+
+    const handle = document.createElement("span");
+    handle.className = "drag-handle";
+    handle.textContent = "≡";
+
+    const content = document.createElement("div");
+    content.className = "qr-content";
 
     const textDiv = document.createElement("div");
     textDiv.className = "qr-text";
@@ -157,69 +173,112 @@ function refreshList() {
       updateOutput();
     });
 
-    li.appendChild(textDiv);
-    li.appendChild(memoInput);
+    content.appendChild(textDiv);
+    content.appendChild(memoInput);
+
+    li.appendChild(handle);
+    li.appendChild(content);
     list.appendChild(li);
   });
 }
 
-// --- 出力canvas更新 ---
+/* ========= テキスト自動改行描画 ========= */
+function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight) {
+  const chars = text.split("");
+  let line = "";
+  const lines = [];
+
+  chars.forEach(char => {
+    const testLine = line + char;
+    if (ctx.measureText(testLine).width > maxWidth) {
+      lines.push(line);
+      line = char;
+    } else {
+      line = testLine;
+    }
+  });
+  if (line) lines.push(line);
+
+  lines.forEach((l, i) => {
+    ctx.fillText(l, x, y + i * lineHeight);
+  });
+
+  return lines.length;
+}
+
+/* ========= 出力canvas更新 ========= */
 function updateOutput() {
   const out = document.getElementById("output");
   const ctx = out.getContext("2d");
   const title = document.getElementById("title").value;
 
-  out.height =
-    titleHeight +
-    qrItems.length * (QR_SIZE + memoHeight + gap);
-
   ctx.clearRect(0, 0, out.width, out.height);
   ctx.textAlign = "center";
   ctx.fillStyle = "#000";
 
-  // タイトル
+  let y = 10;
+
+  // タイトル（自動改行）
+  let titleHeight = 0;
   if (title) {
     ctx.font = "bold 22px sans-serif";
-    ctx.fillText(title, out.width / 2, 28);
+    const lines = drawWrappedText(
+      ctx,
+      title,
+      out.width / 2,
+      y + 22,
+      out.width - 20,
+      26
+    );
+    titleHeight = lines * 26 + 10;
+    y += titleHeight;
   }
 
-  qrItems.forEach((item, i) => {
-    const baseY =
-      titleHeight + i * (QR_SIZE + memoHeight + gap);
+  // QR群
+  out.height =
+    y +
+    qrItems.length * (QR_SIZE + memoHeight + gap);
 
-    // メモ
+  ctx.clearRect(0, 0, out.width, out.height);
+
+  // 再描画（高さ確定後）
+  y = 10;
+  if (title) {
+    ctx.font = "bold 22px sans-serif";
+    const lines = drawWrappedText(
+      ctx,
+      title,
+      out.width / 2,
+      y + 22,
+      out.width - 20,
+      26
+    );
+    y += lines * 26 + 10;
+  }
+
+  qrItems.forEach(item => {
     if (item.memo) {
       ctx.font = "16px sans-serif";
-      ctx.fillText(item.memo, out.width / 2, baseY + 18);
+      ctx.fillText(item.memo, out.width / 2, y + 18);
     }
-
-    // QR
     const x = (out.width - QR_SIZE) / 2;
-    ctx.drawImage(
-      item.canvas,
-      x,
-      baseY + memoHeight,
-      QR_SIZE,
-      QR_SIZE
-    );
+    ctx.drawImage(item.canvas, x, y + memoHeight, QR_SIZE, QR_SIZE);
+    y += QR_SIZE + memoHeight + gap;
   });
 }
 
-// --- タイトル変更即反映 ---
+/* ========= 各種イベント ========= */
 document.getElementById("title").addEventListener("input", updateOutput);
 
-// --- リセット ---
 document.getElementById("reset").addEventListener("click", () => {
   qrItems.length = 0;
   document.getElementById("qr-list").innerHTML = "";
   updateOutput();
 });
 
-// --- ダウンロード ---
 document.getElementById("download").addEventListener("click", () => {
-  const out = document.getElementById("output");
   const link = document.createElement("a");
-  link.href = out.toDataURL("image/png");
+  link.href = output.toDataURL("image/png");
   link.download = "qrまとめ.png";
   link.click();
 });
