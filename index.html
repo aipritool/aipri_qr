@@ -3,82 +3,154 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QRまとめ生成（縦一列＋隙間あり）</title>
+<title>QRまとめ生成 完全版</title>
+
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+
 <style>
   body { font-family: sans-serif; margin: 10px; text-align: center; }
   #reader { width: 100%; max-width: 320px; margin: auto; }
   #qr-list { list-style: none; padding: 0; margin: 10px 0; }
-  #qr-list li { margin: 5px 0; word-break: break-all; font-size: 14px; }
-  #output { border:1px solid #ccc; width: 90%; max-width: 320px; margin: 10px auto; }
-  button { padding: 10px 20px; margin: 5px; font-size: 16px; }
+  #qr-list li {
+    margin: 5px 0;
+    padding: 6px;
+    border: 1px solid #ccc;
+    cursor: grab;
+    font-size: 13px;
+    word-break: break-all;
+  }
+  #output {
+    border: 1px solid #ccc;
+    width: 320px;
+    margin: 10px auto;
+  }
+  button, input {
+    padding: 8px 12px;
+    margin: 5px;
+    font-size: 14px;
+  }
 </style>
 </head>
 <body>
 
-<h2>QRまとめ生成（縦一列＋隙間あり）</h2>
+<h2>QRまとめ生成（完全版）</h2>
 
 <div id="reader"></div>
+
+<input id="memo" type="text" placeholder="メモ（QRの上に表示）" style="width:90%;max-width:320px;">
+<br>
+
 <button id="start-scan">QR読み取り開始</button>
+<button id="reset">リセット</button>
 
 <ul id="qr-list"></ul>
 
-<canvas id="output" width="320" height="320"></canvas>
+<canvas id="output" width="320"></canvas>
 <br>
 <button id="download">まとめ画像をダウンロード</button>
 
 <script>
-const qrData = [];
 const maxQR = 4;
-const qrCanvases = [];
-const gap = 20; // QRコード間の隙間(px)
+const QR_SIZE = 300;
+const gap = 20;
+const memoHeight = 24;
+
+let html5QrcodeScanner = null;
+const qrItems = []; 
+// { text, canvas, memo }
+
+// --- 並び替え ---
+new Sortable(document.getElementById("qr-list"), {
+    animation: 150,
+    onEnd: () => {
+        const reordered = [];
+        document.querySelectorAll("#qr-list li").forEach(li => {
+            reordered.push(qrItems[li.dataset.index]);
+        });
+        qrItems.length = 0;
+        qrItems.push(...reordered);
+        updateListIndex();
+        updateOutput();
+    }
+});
 
 document.getElementById("start-scan").addEventListener("click", () => {
-    const html5QrcodeScanner = new Html5Qrcode("reader");
+    if (html5QrcodeScanner) return;
+
+    html5QrcodeScanner = new Html5Qrcode("reader");
     html5QrcodeScanner.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: 250 },
         (decodedText) => {
-            if(qrData.length < maxQR && !qrData.includes(decodedText)){
-                qrData.push(decodedText);
-                const li = document.createElement("li");
-                li.textContent = decodedText;
-                document.getElementById("qr-list").appendChild(li);
-                generateQRCanvas(decodedText, qrData.length-1);
+            if (qrItems.length >= maxQR) {
+                html5QrcodeScanner.stop();
+                html5QrcodeScanner = null;
+                return;
             }
-        },
-        (errorMessage) => { /* 読み取り失敗は無視 */ }
+            if (qrItems.some(item => item.text === decodedText)) return;
+            addQR(decodedText);
+        }
     );
 });
 
-function generateQRCanvas(text, index){
+function addQR(text) {
     const canvas = document.createElement("canvas");
-    canvas.width = 300;
-    canvas.height = 300;
-    QRCode.toCanvas(canvas, text, { width:300, margin:0 }, function (error) {
-        if(error) console.error(error);
-        qrCanvases[index] = canvas;
+    canvas.width = QR_SIZE;
+    canvas.height = QR_SIZE;
+
+    QRCode.toCanvas(canvas, text, { width: QR_SIZE, margin: 0 }, (err) => {
+        if (err) return console.error(err);
+
+        const memo = document.getElementById("memo").value;
+        qrItems.push({ text, canvas, memo });
+
+        const li = document.createElement("li");
+        li.textContent = text;
+        document.getElementById("qr-list").appendChild(li);
+
+        updateListIndex();
         updateOutput();
     });
 }
 
-function updateOutput(){
-    const out = document.getElementById("output");
-    const ctx = out.getContext("2d");
-    
-    const qrCount = qrCanvases.filter(c=>c).length;
-    // 縦一列 + 隙間込みで高さ計算
-    out.height = qrCount * 300 + (qrCount-1) * gap;
-
-    ctx.clearRect(0,0,out.width,out.height);
-
-    qrCanvases.forEach((c, i) => {
-        if(!c) return;
-        const y = i * (300 + gap);
-        ctx.drawImage(c, 0, y, 320, 300);
+function updateListIndex() {
+    document.querySelectorAll("#qr-list li").forEach((li, i) => {
+        li.dataset.index = i;
     });
 }
+
+function updateOutput() {
+    const out = document.getElementById("output");
+    const ctx = out.getContext("2d");
+
+    out.height = qrItems.length * (QR_SIZE + memoHeight + gap);
+
+    ctx.clearRect(0, 0, out.width, out.height);
+    ctx.font = "16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#000";
+
+    qrItems.forEach((item, i) => {
+        const baseY = i * (QR_SIZE + memoHeight + gap);
+
+        // メモ
+        if (item.memo) {
+            ctx.fillText(item.memo, out.width / 2, baseY + 18);
+        }
+
+        // QR
+        const x = (out.width - QR_SIZE) / 2;
+        ctx.drawImage(item.canvas, x, baseY + memoHeight, QR_SIZE, QR_SIZE);
+    });
+}
+
+document.getElementById("reset").addEventListener("click", () => {
+    qrItems.length = 0;
+    document.getElementById("qr-list").innerHTML = "";
+    updateOutput();
+});
 
 document.getElementById("download").addEventListener("click", () => {
     const out = document.getElementById("output");
